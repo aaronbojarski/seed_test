@@ -5,6 +5,9 @@ from seedemu.core import Emulator
 from seedemu.layers import ScionBase, ScionRouting, ScionIsd, Scion
 from seedemu.layers.Scion import LinkType as ScLinkType
 
+import json
+import os
+
 # Initialize
 emu = Emulator()
 base = ScionBase()
@@ -30,7 +33,6 @@ as150.createHost('time').joinNetwork('net0', address='10.150.0.30')
 host = as150.getHost('time')
 host.addSoftware("git")
 # install go 1.25.1
-# install go 1.25.1
 host.addBuildCommand("rm -rf /usr/local/go && curl -LO https://golang.org/dl/go1.25.1.linux-amd64.tar.gz && \
     echo \"7716a0d940a0f6ae8e1f3b3f4f36299dc53e31b16840dbd171254312c41ca12e go1.25.1.linux-amd64.tar.gz\" | sha256sum -c && \
     tar -C /usr/local -xzf go1.25.1.linux-amd64.tar.gz \
@@ -49,6 +51,22 @@ ntske_key_file = "/tls.key"
 ntske_server_name = "localhost"
 """
 host.setFile(path="ts_config.toml", content=ts_config)
+
+cert_config = """[ req ]
+distinguished_name = dn
+prompt = no
+
+[ dn ]
+C = CH
+ST = Zurich
+L = .
+O = .
+OU = .
+CN = .
+"""
+host.setFile(path="tls-cert.conf", content=cert_config)
+# generate certificate for NTSKE Server
+host.appendStartCommand("openssl req -new -newkey rsa:4096 -x509 -sha256 -days 365 -nodes -out /tls.crt -keyout /tls.key -config /tls-cert.conf")
 # kill the dispatcher since it is incompatible with the scion-time server
 host.appendStartCommand("pkill dispatcher", isPostConfigCommand=True)
 # start the scion-time server
@@ -106,3 +124,18 @@ emu.render()
 
 # Compilation
 emu.compile(Docker(internetMapPort=5000), './output', override=True)
+
+# Post process topology.json in AS 150 to dispatch all ports.
+# It would be nice if this could be configured with seedemu.
+folders = ["brdnode_150_br0", "csnode_150_cs1", "hnode_150_time"]
+for folder in folders:
+    for filename in os.listdir(f"output/{folder}/"):
+        with open(f"output/{folder}/{filename}", "r") as f:
+            try:
+                topology = json.load(f)
+            except:
+                continue
+        if "dispatched_ports" in topology:
+            topology["dispatched_ports"] = "all"
+            with open(f"output/{folder}/{filename}", "w") as f:
+                json.dump(topology, f, indent=2)
