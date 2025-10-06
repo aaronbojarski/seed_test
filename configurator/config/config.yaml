@@ -1,0 +1,68 @@
+MAIN:
+  ISDs: 1
+
+ISD1:
+  ISDN: 1
+  AS: 8
+  LEVELS: 3
+  ASes:
+    CORE: # Core ASes peer with all other core ASes
+      AS150:
+        ASN: 150
+        BRs: 3
+        INTER_BR: "br1"
+      AS151:
+        ASN: 151
+        BRs: 3
+        INTER_BR: "br1"
+    LEVEL1:
+      AS152:
+        ASN: 152
+        CONNECTIONS:
+        - AS: 150
+          BR: "br0"
+          RELATION: "PROVIDER"
+      AS153:
+        ASN: 153
+        CONNECTIONS:
+        - AS: 150
+          BR: "br0"
+          RELATION: "PROVIDER"
+      AS154:
+        ASN: 154
+        HOST: True
+        CONNECTIONS:
+        - AS: 151
+          BR: "br0"
+          RELATION: "PROVIDER"
+    LEVEL2:
+      AS155:
+        ASN: 155
+        CONNECTIONS:
+        - AS: 152
+          BR: "br0"
+          RELATION: "PROVIDER"
+      AS156:
+        ASN: 156
+        CONNECTIONS:
+        - AS: 153
+          BR: "br0"
+          RELATION: "PROVIDER"
+        - AS: 154
+          BR: "br0"
+          RELATION: "PROVIDER"
+        - AS: 155
+          BR: "br0"
+          RELATION: "PEER"
+
+    LEVEL3:
+      AS157:
+        ASN: 157
+        HOST: True
+        CONNECTIONS:
+        - AS: 155
+          BR: "br0"
+          RELATION: "PROVIDER"
+        - AS: 156
+          BR: "br0"
+          RELATION: "PROVIDER"

@@ -1,3 +1,4 @@
 output
 .scion_build_output
 *.pcap
+.venv
