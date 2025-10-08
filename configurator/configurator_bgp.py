@@ -73,6 +73,8 @@ for _isd in range(1, config["MAIN"]["ISDs"] + 1):
             boarder_router.joinNetwork(f'net0')
             if "HOST" in as_data and as_data["HOST"]:
                 customer_as.createHost('host').joinNetwork('net0', address=f'10.{asn}.0.30')
+                host = customer_as.getHost('host')
+                host.addSoftware("traceroute")
             for connection in as_data["CONNECTIONS"]:
                 print(connection)
                 boarder_router.crossConnect(connection["AS"], connection["BR"], xc_nets.next_addr(f"{connection["AS"]}-{asn}"))
