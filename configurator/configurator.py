@@ -8,10 +8,11 @@ import yaml
 
 from ipaddress import IPv4Network
 from seedemu.compiler import Docker
-from seedemu.core import Emulator, Binding, Filter
+from seedemu.core import Emulator, OptionMode, OptionRegistry
 from seedemu.layers import ScionBase, ScionRouting, ScionIsd, Scion, Ospf
 from seedemu.layers.Scion import LinkType as ScLinkType
 from seedemu.services import ScionBwtestService
+
 
 class CrossConnectNetAssigner:
     def __init__(self):
@@ -54,6 +55,7 @@ for _isd in range(1, config["MAIN"]["ISDs"] + 1):
         asn = as_data["ASN"]
         routers[isd][asn] = {}
         core_as = base.createAutonomousSystem(asn)
+        core_as.setOption(OptionRegistry().scion_disable_bfd("false", mode = OptionMode.RUN_TIME))
         scion_isd.addIsdAs(isd, asn, is_core=True)
         for br_id in range(as_data["BRs"]):
             core_as.createNetwork(f'net{br_id}')
@@ -76,6 +78,7 @@ for _isd in range(1, config["MAIN"]["ISDs"] + 1):
             asn = as_data["ASN"]
             routers[isd][asn] = {}
             customer_as = base.createAutonomousSystem(asn)
+            customer_as.setOption(OptionRegistry().scion_disable_bfd("false", mode = OptionMode.RUN_TIME))
             scion_isd.addIsdAs(isd, asn, is_core=False)
             scion_isd.setCertIssuer((isd, asn), core_ases[isd][0])
             customer_as.createNetwork(f'net0')
@@ -83,7 +86,7 @@ for _isd in range(1, config["MAIN"]["ISDs"] + 1):
             routers[isd][asn][0] = boarder_router
             boarder_router.joinNetwork(f'net0')
             customer_as.createControlService('cs1').joinNetwork('net0')
-            if "HOST" in as_data:
+            if "HOST" in as_data and as_data["HOST"]:
                 customer_as.createHost('host').joinNetwork('net0', address=f'10.{asn}.0.30')
                 host = customer_as.getHost('host')
                 host.addSoftware("git")
@@ -116,5 +119,66 @@ emu.addLayer(bwtest)
 
 emu.render()
 
+# get cross connect link names to be able to crash them
+cross_connects = {}
+for _isd in range(1, config["MAIN"]["ISDs"] + 1):
+    isd = isd_config["ISDN"]
+    for level in range(1, isd_config["LEVELS"] + 1):
+        for _, as_data in isd_config["ASes"][f"LEVEL{level}"].items():
+            asn = as_data["ASN"]
+            for connection in as_data["CONNECTIONS"]:
+                _, cx_name, _ = routers[isd][asn][0].getCrossConnect(connection["AS"], connection["BR"])
+                cross_connects[(isd, asn, isd, connection["AS"])] = cx_name
+                _, cx_name, _ = routers[isd][connection["AS"]][0].getCrossConnect(asn, "br0")
+                cross_connects[(isd, connection["AS"], isd, asn)] = cx_name
+
 # Compilation
 emu.compile(Docker(internetMapPort=5000), './output', override=True)
+
+whales = python_on_whales.DockerClient(compose_files=["./output/docker-compose.yml"])
+whales.compose.build()
+whales.compose.up(detach=True)
+
+# Use Docker SDK to interact with the containers
+client: docker.DockerClient = docker.from_env()
+ctrs = {ctr.name: client.containers.get(ctr.id) for ctr in whales.compose.ps()}
+
+time.sleep(10) # Give SCION some time
+print(ctrs.items())
+
+
+for name, ctr in ctrs.items():
+    if "as154h-host" in name:
+        #start the server
+        ec, server_output = ctr.exec_run("./scion-fast-failover/fast-failover server -local 1-154,10.154.0.30:31000", detach=True)
+
+for name, ctr in ctrs.items():
+    if "as157h-host" in name:
+        #start the server
+        print("Starting the client")
+        ec, client_output = ctr.exec_run("./scion-fast-failover/fast-failover client -daemon 127.0.0.1:30255 -local 1-157,10.157.0.30:31000 -remote 1-154,10.154.0.30:31000", detach=True)
+
+time.sleep(5)
+
+print("Cross Connects:", cross_connects)
+for name, ctr in ctrs.items():
+    if "as156brd-br0" in name:
+        #start the server
+        print(f"BR 156: $ ip link set {cross_connects[(1, 156, 1, 154)]} down")
+        ec, client_output = ctr.exec_run(f"ip link set {cross_connects[(1, 156, 1, 154)]} down")
+
+time.sleep(15)
+
+for name, ctr in ctrs.items():
+    if "as157h-host" in name:
+        with open('data.tar', 'wb') as f:
+            bits, stat = ctr.get_archive('fast-failover-client.log')
+            print(stat)
+            for chunk in bits:
+                f.write(chunk)
+
+print("Started")
+
+# Shut the network down
+whales.compose.down()
+
