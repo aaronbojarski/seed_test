@@ -1,4 +1,5 @@
 output
+output_bgp
 .scion_build_output
 *.pcap
 .venv
