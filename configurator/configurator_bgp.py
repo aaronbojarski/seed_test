@@ -75,10 +75,21 @@ for _isd in range(1, config["MAIN"]["ISDs"] + 1):
                 customer_as.createHost('host').joinNetwork('net0', address=f'10.{asn}.0.30')
                 host = customer_as.getHost('host')
                 host.addSoftware("traceroute")
+                host.addSoftware("git")
+                # install go 1.25.1
+                host.addBuildCommand("rm -rf /usr/local/go && curl -LO https://golang.org/dl/go1.25.1.linux-amd64.tar.gz && \
+                    echo \"7716a0d940a0f6ae8e1f3b3f4f36299dc53e31b16840dbd171254312c41ca12e go1.25.1.linux-amd64.tar.gz\" | sha256sum -c && \
+                    tar -C /usr/local -xzf go1.25.1.linux-amd64.tar.gz \
+                    && rm go1.25.1.linux-amd64.tar.gz")
+                # install scion-fast-failover
+                host.addBuildCommand("git clone https://github.com/aaronbojarski/ip-failover.git && \
+                    cd ip-failover && \
+                    /usr/local/go/bin/go build ip-failover.go server.go client.go")
+
             for connection in as_data["CONNECTIONS"]:
                 print(connection)
-                boarder_router.crossConnect(connection["AS"], connection["BR"], xc_nets.next_addr(f"{connection["AS"]}-{asn}"))
-                routers[isd][connection["AS"]][0].crossConnect(asn, "br0", xc_nets.next_addr(f"{connection["AS"]}-{asn}"))
+                boarder_router.crossConnect(connection["AS"], connection["BR"], xc_nets.next_addr(f"{connection["AS"]}-{asn}"), latency=5)
+                routers[isd][connection["AS"]][0].crossConnect(asn, "br0", xc_nets.next_addr(f"{connection["AS"]}-{asn}"), latency=5)
                 if connection["RELATION"] == "PROVIDER":
                     ebgp.addCrossConnectPeering(connection["AS"], asn, PeerRelationship.Provider)
                 elif connection["RELATION"] == "PEER":
